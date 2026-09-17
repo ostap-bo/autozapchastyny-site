@@ -30,6 +30,12 @@
     return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
       'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + (bodies[name] || bodies.check) + '</svg>';
   }
+  function basePath() {
+    var d = parseInt(document.body.getAttribute("data-depth") || "0", 10);
+    var out = "";
+    for (var i = 0; i < d; i++) out += "../";
+    return out;
+  }
   function starsRow(rating) {
     var out = "";
     for (var i = 0; i < 5; i++) {
@@ -105,6 +111,93 @@
   }
 
   // ------------------------------------------------------------------
+  // Cart drawer (mini-cart flyout)
+  // ------------------------------------------------------------------
+  function renderCartDrawer() {
+    var itemsEl = qs("#cart-drawer-items");
+    if (!itemsEl) return;
+    var base = basePath();
+    var lines = cartLines();
+    var emptyEl = qs("#cart-drawer-empty");
+    var footEl = qs("#cart-drawer-foot");
+
+    if (!lines.length) {
+      itemsEl.innerHTML = "";
+      if (emptyEl) emptyEl.hidden = false;
+      if (footEl) footEl.hidden = true;
+      return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    if (footEl) footEl.hidden = false;
+
+    itemsEl.innerHTML = lines.map(function (l) {
+      var p = l.product;
+      return '<div class="cart-drawer-item" data-product-id="' + p.id + '">' +
+        '<a href="' + base + 'product.html?id=' + p.id + '" class="cart-drawer-item-thumb">' + iconSvg("photo", 22) + "</a>" +
+        '<div class="cart-drawer-item-info">' +
+        '<a href="' + base + 'product.html?id=' + p.id + '" class="cart-item-name">' + p.name + "</a>" +
+        '<div class="cart-item-brand">' + l.qty + " × " + money(p.price) + "</div></div>" +
+        '<button type="button" class="cart-item-remove" aria-label="Видалити" data-action="drawer-remove">' + iconSvg("trash", 16) + "</button></div>";
+    }).join("");
+
+    var subtotal = cartSubtotal(lines);
+    var promo = getPromo();
+    var discount = promo ? Math.round(subtotal * promo.percent / 100) : 0;
+    var totalEl = qs("#cart-drawer-total");
+    if (totalEl) totalEl.textContent = money(subtotal - discount);
+  }
+
+  function openCartDrawer() {
+    var drawer = qs("#cart-drawer");
+    var overlay = qs("#cart-drawer-overlay");
+    if (!drawer || !overlay) return;
+    renderCartDrawer();
+    drawer.classList.add("open");
+    overlay.classList.add("show");
+    document.body.classList.add("drawer-open");
+  }
+  function closeCartDrawer() {
+    var drawer = qs("#cart-drawer");
+    var overlay = qs("#cart-drawer-overlay");
+    if (!drawer || !overlay) return;
+    drawer.classList.remove("open");
+    overlay.classList.remove("show");
+    document.body.classList.remove("drawer-open");
+  }
+  function initCartDrawer() {
+    var drawer = qs("#cart-drawer");
+    if (!drawer) return;
+    var cartBtn = qs("#header-cart-btn");
+    if (cartBtn) {
+      cartBtn.addEventListener("click", function () {
+        openCartDrawer();
+      });
+    }
+    var closeBtn = qs("#cart-drawer-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeCartDrawer);
+    var overlay = qs("#cart-drawer-overlay");
+    if (overlay) overlay.addEventListener("click", closeCartDrawer);
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeCartDrawer();
+    });
+    var itemsEl = qs("#cart-drawer-items");
+    if (itemsEl) {
+      itemsEl.addEventListener("click", function (e) {
+        var btn = e.target.closest ? e.target.closest('[data-action="drawer-remove"]') : null;
+        if (!btn) return;
+        var row = btn.closest(".cart-drawer-item");
+        if (!row) return;
+        removeFromCart(row.getAttribute("data-product-id"));
+        renderCartDrawer();
+      });
+    }
+    // keep drawer contents in sync if cart changes elsewhere (e.g. full cart page in another tab)
+    window.addEventListener("storage", function (e) {
+      if (e.key === CART_KEY && drawer.classList.contains("open")) renderCartDrawer();
+    });
+  }
+
+  // ------------------------------------------------------------------
   // Toast
   // ------------------------------------------------------------------
   var toastEl = null;
@@ -141,6 +234,7 @@
       addToCart(id, 1);
       var p = productById(id);
       showToast((p ? p.name : "Товар") + " додано в кошик");
+      openCartDrawer();
     });
   }
 
@@ -173,7 +267,7 @@
     var state = {
       search: params.get("search") || "",
       categories: params.get("category") ? [params.get("category")] : [],
-      brands: [],
+      brands: params.get("brand") ? [params.get("brand")] : [],
       priceMin: null,
       priceMax: null,
       inStock: false,
@@ -186,6 +280,9 @@
     if (searchInput) searchInput.value = state.search;
     qsa('input[name="category"]', grid.parentElement.parentElement).forEach(function (cb) {
       if (state.categories.indexOf(cb.value) !== -1) cb.checked = true;
+    });
+    qsa('input[name="brand"]', grid.closest(".catalog-layout")).forEach(function (cb) {
+      if (state.brands.indexOf(cb.value) !== -1) cb.checked = true;
     });
 
     function computeList() {
@@ -397,6 +494,7 @@
       addToCart(p.id, qty);
       showToast(p.name + " додано в кошик");
       qs("#product-add-success").hidden = false;
+      openCartDrawer();
     });
 
     // related products: same category first, fill up to 4
@@ -611,6 +709,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     updateCartBadge();
     initMobileNav();
+    initCartDrawer();
     initGlobalAddToCart();
     initHeroSearch();
     initCatalog();
